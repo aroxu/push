@@ -1,0 +1,25 @@
+# Single-node Garage configuration.
+# Replication factor 1 keeps the footprint small; raise it (and add nodes) if
+# you need real durability guarantees beyond the local disk.
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir     = "/var/lib/garage/data"
+db_engine    = "sqlite"
+
+replication_factor = 1
+consistency_mode   = "consistent"
+
+# RPC secret is injected from the environment (GARAGE_RPC_SECRET).
+rpc_bind_addr = "[::]:3901"
+
+[s3_api]
+s3_region   = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage.local"
+
+[k2v_api]
+api_bind_addr = "[::]:3904"
+
+[admin]
+api_bind_addr = "[::]:3903"
+

@@ -1,0 +1,153 @@
+# push — single-command deployment.
+#
+#   cp .env.example .env && ./scripts/gen-secrets.sh   # fill in the secrets
+#   docker compose up -d
+#
+# Network layout:
+#   edge     : only Caddy is published to the host (80/443)
+#   internal : garage + push + dozzle, no route to the outside world
+
+name: push
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "7"          # ~7 days of rotation at typical volume
+
+services:
+  # --------------------------------------------------------------------- edge
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      push:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUSH_SITE_ADDRESS: ${PUSH_SITE_ADDRESS:-:80}
+      DOZZLE_USER: ${DOZZLE_USER:-admin}
+      DOZZLE_PASSWORD_HASH: ${DOZZLE_PASSWORD_HASH:?set DOZZLE_PASSWORD_HASH in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge, internal]
+    logging: *default-logging
+    security_opt: ["no-new-privileges:true"]
+
+  # ------------------------------------------------------------------ storage
+  garage:
+    image: dxflrs/garage:v1.0.1
+    restart: unless-stopped
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?set GARAGE_RPC_SECRET in .env}
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    networks: [internal]
+    logging: *default-logging
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/garage", "-c", "/etc/garage.toml", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # One-shot: lays out the cluster, creates the bucket and the access key.
+  garage-init:
+    image: dxflrs/garage:v1.0.1
+    restart: "no"
+    depends_on:
+      garage:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/bootstrap-garage.sh"]
+    environment:
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?}
+      GARAGE_RPC_HOST: garage:3901
+      PUSH_S3_BUCKET: ${PUSH_S3_BUCKET:-push}
+      PUSH_S3_ACCESS_KEY: ${PUSH_S3_ACCESS_KEY:-}
+      PUSH_S3_SECRET_KEY: ${PUSH_S3_SECRET_KEY:-}
+      GARAGE_CAPACITY: ${GARAGE_CAPACITY:-100G}
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - ./scripts/bootstrap-garage.sh:/scripts/bootstrap-garage.sh:ro
+    networks: [internal]
+    logging: *default-logging
+
+  # ---------------------------------------------------------------- the app
+  push:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/aroxu/push:latest
+    restart: unless-stopped
+    depends_on:
+      garage-init:
+        condition: service_completed_successfully
+    environment:
+      PUSH_ADDR: ":3234"
+      PUSH_PUBLIC_URL: ${PUSH_PUBLIC_URL:-http://localhost:3234}
+      PUSH_S3_ENDPOINT: http://garage:3900
+      PUSH_S3_REGION: garage
+      PUSH_S3_BUCKET: ${PUSH_S3_BUCKET:-push}
+      PUSH_S3_ACCESS_KEY: ${PUSH_S3_ACCESS_KEY:?set PUSH_S3_ACCESS_KEY in .env}
+      PUSH_S3_SECRET_KEY: ${PUSH_S3_SECRET_KEY:?set PUSH_S3_SECRET_KEY in .env}
+      PUSH_MAX_UPLOAD: ${PUSH_MAX_UPLOAD:-32GB}
+      PUSH_PART_SIZE: ${PUSH_PART_SIZE:-16MB}
+      PUSH_PART_CONCURRENCY: ${PUSH_PART_CONCURRENCY:-8}
+      PUSH_UPLOAD_SLOTS: ${PUSH_UPLOAD_SLOTS:-32}
+      PUSH_RETENTION: ${PUSH_RETENTION:-24h}
+      PUSH_LOG_RETENTION: ${PUSH_LOG_RETENTION:-168h}
+      PUSH_LOG_DIR: /var/log/push
+      PUSH_RATE_PER_MIN: ${PUSH_RATE_PER_MIN:-60}
+      PUSH_RATE_BURST: ${PUSH_RATE_BURST:-30}
+      # Caddy is the only thing allowed to set X-Forwarded-For.
+      PUSH_TRUSTED_PROXIES: 172.16.0.0/12,10.0.0.0/8,192.168.0.0/16
+    volumes:
+      - push-logs:/var/log/push
+    # Uncomment to reach the app directly without Caddy (local development):
+    # ports:
+    #   - "3234:3234"
+    networks: [internal]
+    logging: *default-logging
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  # --------------------------------------------------------------- observability
+  dozzle:
+    image: amir20/dozzle:v8.11.7
+    restart: unless-stopped
+    environment:
+      DOZZLE_BASE: /logs
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_FILTER: "label=com.docker.compose.project=push"
+    volumes:
+      # Read-only socket access; Dozzle never needs to write.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [internal]
+    logging: *default-logging
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: false
+
+volumes:
+  garage-meta:
+  garage-data:
+  push-logs:
+  caddy-data:
+  caddy-config:
+

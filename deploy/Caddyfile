@@ -1,0 +1,49 @@
+# Caddy terminates TLS directly. Because there is no Cloudflare in front of
+# this deployment, every protective header and limit has to live here.
+
+{
+	# Trim the server banner and disable the admin API surface.
+	admin off
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$PUSH_SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+	}
+
+	# Dozzle lives on a separate path and is protected by basic auth.
+	handle_path /logs* {
+		basic_auth {
+			{$DOZZLE_USER} {$DOZZLE_PASSWORD_HASH}
+		}
+		reverse_proxy dozzle:8080
+	}
+
+	handle {
+		reverse_proxy push:3234 {
+			# Very large uploads stream for a long time; do not cut them off.
+			transport http {
+				read_timeout 6h
+				write_timeout 6h
+				dial_timeout 10s
+			}
+			flush_interval -1
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+

@@ -1,0 +1,23 @@
+# Local / no-TLS override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# Publishes push directly on :3234 and drops Caddy out of the picture, which is
+# handy for trying the curl flow on your laptop.
+
+services:
+  caddy:
+    profiles: ["disabled"]
+
+  push:
+    ports:
+      - "3234:3234"
+    environment:
+      PUSH_PUBLIC_URL: http://localhost:3234
+
+  dozzle:
+    ports:
+      - "8080:8080"
+    environment:
+      DOZZLE_BASE: /
+

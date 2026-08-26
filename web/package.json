@@ -1,0 +1,40 @@
+{
+  "name": "push-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build"
+  },
+  "dependencies": {
+    "@heroui/button": "^2.2.32",
+    "@heroui/card": "^2.2.28",
+    "@heroui/chip": "^2.2.25",
+    "@heroui/progress": "^2.2.25",
+    "@heroui/react": "^2.8.7",
+    "@heroui/snippet": "^2.2.33",
+    "@heroui/system": "^2.4.28",
+    "@heroui/theme": "^2.4.26",
+    "framer-motion": "^11.18.2",
+    "next": "^15.5.4",
+    "react": "^18.3.1",
+    "react-aria": "^3.51.0",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "@react-aria/focus": "3.21.0",
+    "@react-aria/interactions": "3.25.4",
+    "@react-aria/overlays": "3.28.0",
+    "@react-aria/utils": "3.30.0",
+    "@react-aria/ssr": "3.9.10"
+  }
+}

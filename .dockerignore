@@ -1,0 +1,14 @@
+.git
+.gitignore
+**/node_modules
+web/out
+web/.next
+server/static/*
+!server/static/.gitkeep
+*.md
+!README.md
+.env
+.env.*
+data/
+logs/
+
