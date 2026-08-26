@@ -1,0 +1,9 @@
+# Garage ships a distroless image, which has no shell for the bootstrap script.
+# Copy its static binary onto Alpine so we get both the CLI and /bin/sh.
+FROM dxflrs/garage:v1.0.1 AS garage
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=garage /garage /usr/local/bin/garage
+RUN chmod +x /usr/local/bin/garage
+

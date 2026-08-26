@@ -61,7 +61,11 @@ services:
 
   # One-shot: lays out the cluster, creates the bucket and the access key.
   garage-init:
-    image: dxflrs/garage:v1.0.1
+    # The official Garage image is distroless (no /bin/sh), so we bake a tiny
+    # Alpine image that carries the same static garage binary plus a shell.
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.garage-init
     restart: "no"
     depends_on:
       garage:
@@ -69,7 +73,7 @@ services:
     entrypoint: ["/bin/sh", "/scripts/bootstrap-garage.sh"]
     environment:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?}
-      GARAGE_RPC_HOST: garage:3901
+      GARAGE_HOST: garage
       PUSH_S3_BUCKET: ${PUSH_S3_BUCKET:-push}
       PUSH_S3_ACCESS_KEY: ${PUSH_S3_ACCESS_KEY:-}
       PUSH_S3_SECRET_KEY: ${PUSH_S3_SECRET_KEY:-}
@@ -77,6 +81,8 @@ services:
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - ./scripts/bootstrap-garage.sh:/scripts/bootstrap-garage.sh:ro
+      # `garage node id` reads the node key from the metadata dir.
+      - garage-meta:/var/lib/garage/meta:ro
     networks: [internal]
     logging: *default-logging
 
@@ -150,4 +156,3 @@ volumes:
   push-logs:
   caddy-data:
   caddy-config:
-
