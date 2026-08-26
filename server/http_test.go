@@ -61,6 +61,46 @@ func TestSecurityHeadersArePresent(t *testing.T) {
 	}
 }
 
+// Regression: a CSP without 'unsafe-inline' for scripts silently breaks the
+// Next.js static export, because its bootstrap and RSC payload are inline
+// <script> tags. The page then renders as a blank background.
+func TestAppShellCSPAllowsNextInlineBootstrap(t *testing.T) {
+	srv := testServer(t)
+	h := secureHeaders(srv.routes())
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	csp := rr.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("app shell CSP must allow inline bootstrap scripts, got %q", csp)
+	}
+	if !strings.Contains(csp, "object-src 'none'") || !strings.Contains(csp, "base-uri 'none'") {
+		t.Errorf("app shell CSP lost its hardening: %q", csp)
+	}
+}
+
+// Downloads must stay under the strict policy regardless of the shell's CSP.
+func TestDownloadsKeepStrictSandboxCSP(t *testing.T) {
+	srv := testServer(t)
+	m := &Meta{
+		ID: "aB3xK9pQ", Filename: "evil.html", Size: 10,
+		ContentType: "text/html", ExpiresAt: time.Now().Add(time.Hour),
+	}
+	rr := httptest.NewRecorder()
+	srv.writeFileHeaders(rr, httptest.NewRequest(http.MethodGet, "/aB3xK9pQ", nil), m, 10, "")
+
+	if csp := rr.Header().Get("Content-Security-Policy"); csp != "default-src 'none'; sandbox" {
+		t.Fatalf("download CSP = %q, want the strict sandbox policy", csp)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/octet-stream" {
+		t.Fatalf("html download content-type = %q, want octet-stream", ct)
+	}
+	if cd := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") {
+		t.Fatalf("html download must be an attachment, got %q", cd)
+	}
+}
+
 // Hostile paths must never be treated as an object id.
 func TestMalformedIDsAreRejectedBeforeStorage(t *testing.T) {
 	srv := testServer(t) // store is nil: reaching it would panic

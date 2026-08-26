@@ -108,8 +108,14 @@ func secureHeaders(next http.Handler) http.Handler {
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), interest-cohort=()")
+		// The app shell is a Next.js static export, which bootstraps React and streams
+		// its RSC payload through inline <script> tags. Blocking those breaks rendering
+		// entirely, so the shell allows inline scripts. This is safe here because the
+		// shell is fully static, first-party markup with no user content in it, and
+		// every user-supplied file is served from HandleGet under a much stricter
+		// "default-src 'none'; sandbox" policy instead.
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+			"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
 				"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "+
 				"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 		if r.TLS != nil {

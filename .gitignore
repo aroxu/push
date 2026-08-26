@@ -22,3 +22,7 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
+
+# local scratch screenshots
+.push-*.png
+.shot*.png
