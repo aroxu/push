@@ -67,6 +67,8 @@ docker compose up -d
 
 That is the whole deployment: Garage, the app, Caddy (TLS) and Dozzle (logs) in one `docker-compose.yml`.
 
+The application image is published publicly as `ghcr.io/aroxu/push:latest`. Uploaded objects and Garage metadata are kept in the `garage-data` volume, entirely below `/data` inside the Garage container.
+
 Just trying it locally, without TLS or a domain?
 
 ```bash
@@ -203,6 +205,8 @@ docker compose up -d
 
 배포는 이게 전부입니다. Garage, 앱, Caddy(TLS), Dozzle(로그)이 `docker-compose.yml` 하나로 뜹니다.
 
+앱 이미지는 `ghcr.io/aroxu/push:latest`에 공개됩니다. 업로드 객체와 Garage 메타데이터는 `garage-data` 볼륨에 보존되며, Garage 컨테이너 내부에서는 전부 `/data` 아래에 저장됩니다.
+
 도메인이나 TLS 없이 로컬에서만 먼저 써보고 싶다면:
 
 ```bash
@@ -286,4 +290,3 @@ cd .. && go test ./server/ && go build ./...
 ### 라이선스
 
 MIT — [LICENSE](LICENSE) 참고.
-

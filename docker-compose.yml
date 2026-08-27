@@ -47,8 +47,8 @@ services:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?set GARAGE_RPC_SECRET in .env}
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
-      - garage-meta:/var/lib/garage/meta
-      - garage-data:/var/lib/garage/data
+      # All persistent Garage state and uploaded objects live below /data.
+      - garage-data:/data
     networks: [internal]
     logging: *default-logging
     security_opt: ["no-new-privileges:true"]
@@ -81,8 +81,8 @@ services:
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - ./scripts/bootstrap-garage.sh:/scripts/bootstrap-garage.sh:ro
-      # `garage node id` reads the node key from the metadata dir.
-      - garage-meta:/var/lib/garage/meta:ro
+      # `garage node id` reads the node key from /data/meta.
+      - garage-data:/data:ro
     networks: [internal]
     logging: *default-logging
 
@@ -151,7 +151,6 @@ networks:
     internal: false
 
 volumes:
-  garage-meta:
   garage-data:
   push-logs:
   caddy-data:

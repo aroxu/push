@@ -2,8 +2,8 @@
 # Replication factor 1 keeps the footprint small; raise it (and add nodes) if
 # you need real durability guarantees beyond the local disk.
 
-metadata_dir = "/var/lib/garage/meta"
-data_dir     = "/var/lib/garage/data"
+metadata_dir = "/data/meta"
+data_dir     = "/data/objects"
 db_engine    = "sqlite"
 
 replication_factor = 1
@@ -22,4 +22,3 @@ api_bind_addr = "[::]:3904"
 
 [admin]
 api_bind_addr = "[::]:3903"
-
