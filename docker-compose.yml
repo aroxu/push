@@ -48,7 +48,9 @@ services:
     volumes:
       - ./garage/garage.toml:/etc/garage.toml:ro
       # All persistent Garage state and uploaded objects live below /data.
-      - garage-data:/data
+      # Separate volumes preserve data when upgrading from earlier releases.
+      - garage-meta:/data/meta
+      - garage-data:/data/objects
     networks: [internal]
     logging: *default-logging
     security_opt: ["no-new-privileges:true"]
@@ -82,7 +84,7 @@ services:
       - ./garage/garage.toml:/etc/garage.toml:ro
       - ./scripts/bootstrap-garage.sh:/scripts/bootstrap-garage.sh:ro
       # `garage node id` reads the node key from /data/meta.
-      - garage-data:/data:ro
+      - garage-meta:/data/meta:ro
     networks: [internal]
     logging: *default-logging
 
@@ -151,6 +153,7 @@ networks:
     internal: false
 
 volumes:
+  garage-meta:
   garage-data:
   push-logs:
   caddy-data:
