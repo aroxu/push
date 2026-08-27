@@ -34,15 +34,15 @@ FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates tzdata wget && \
     addgroup -g 10001 -S push && \
     adduser -u 10001 -S -G push push && \
-    mkdir -p /var/log/push && chown push:push /var/log/push
+    mkdir -p /data /var/log/push && chown push:push /data /var/log/push
 
 COPY --from=build /out/push /usr/local/bin/push
 
 USER push:push
 EXPOSE 3234
+VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD wget -qO- http://127.0.0.1:3234/healthz >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/usr/local/bin/push"]
-

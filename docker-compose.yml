@@ -42,6 +42,7 @@ services:
   # ------------------------------------------------------------------ storage
   garage:
     image: dxflrs/garage:v1.0.1
+    profiles: ["garage"]
     restart: unless-stopped
     environment:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:?set GARAGE_RPC_SECRET in .env}
@@ -68,6 +69,7 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.garage-init
+    profiles: ["garage"]
     restart: "no"
     depends_on:
       garage:
@@ -95,17 +97,16 @@ services:
       dockerfile: Dockerfile
     image: ghcr.io/aroxu/push:latest
     restart: unless-stopped
-    depends_on:
-      garage-init:
-        condition: service_completed_successfully
     environment:
       PUSH_ADDR: ":3234"
       PUSH_PUBLIC_URL: ${PUSH_PUBLIC_URL:-http://localhost:3234}
+      PUSH_STORAGE: ${PUSH_STORAGE:-local}
+      PUSH_DATA_DIR: /data
       PUSH_S3_ENDPOINT: http://garage:3900
       PUSH_S3_REGION: garage
       PUSH_S3_BUCKET: ${PUSH_S3_BUCKET:-push}
-      PUSH_S3_ACCESS_KEY: ${PUSH_S3_ACCESS_KEY:?set PUSH_S3_ACCESS_KEY in .env}
-      PUSH_S3_SECRET_KEY: ${PUSH_S3_SECRET_KEY:?set PUSH_S3_SECRET_KEY in .env}
+      PUSH_S3_ACCESS_KEY: ${PUSH_S3_ACCESS_KEY:-}
+      PUSH_S3_SECRET_KEY: ${PUSH_S3_SECRET_KEY:-}
       PUSH_MAX_UPLOAD: ${PUSH_MAX_UPLOAD:-32GB}
       PUSH_PART_SIZE: ${PUSH_PART_SIZE:-16MB}
       PUSH_PART_CONCURRENCY: ${PUSH_PART_CONCURRENCY:-8}
@@ -118,6 +119,7 @@ services:
       # Caddy is the only thing allowed to set X-Forwarded-For.
       PUSH_TRUSTED_PROXIES: 172.16.0.0/12,10.0.0.0/8,192.168.0.0/16
     volumes:
+      - push-data:/data
       - push-logs:/var/log/push
     # Uncomment to reach the app directly without Caddy (local development):
     # ports:
@@ -155,6 +157,7 @@ networks:
 volumes:
   garage-meta:
   garage-data:
+  push-data:
   push-logs:
   caddy-data:
   caddy-config:

@@ -34,6 +34,25 @@ type Meta struct {
 }
 
 var ErrNotFound = errors.New("not found")
+var ErrInvalidRange = errors.New("invalid range")
+
+// BlobResult is backend-neutral download state used by the HTTP layer.
+type BlobResult struct {
+	Body          io.ReadCloser
+	ContentLength int64
+	ContentRange  string
+}
+
+// Storage is implemented by both Garage/S3 and the local filesystem backend.
+type Storage interface {
+	PutStream(context.Context, string, io.Reader, string, int64) (int64, error)
+	PutMeta(context.Context, *Meta) error
+	GetMeta(context.Context, string) (*Meta, error)
+	GetBlob(context.Context, string, string) (*BlobResult, error)
+	Delete(context.Context, string) error
+	ListMeta(context.Context, func(*Meta) error) error
+	AbortStaleUploads(context.Context, time.Duration) int
+}
 
 type Store struct {
 	c        *s3.Client
@@ -306,7 +325,7 @@ func (s *Store) GetMeta(ctx context.Context, id string) (*Meta, error) {
 
 // GetBlob returns a streaming reader, optionally honouring an HTTP Range header
 // so large downloads are resumable.
-func (s *Store) GetBlob(ctx context.Context, id, rangeHeader string) (*s3.GetObjectOutput, error) {
+func (s *Store) GetBlob(ctx context.Context, id, rangeHeader string) (*BlobResult, error) {
 	in := &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(blobKey(id)),
@@ -322,7 +341,11 @@ func (s *Store) GetBlob(ctx context.Context, id, rangeHeader string) (*s3.GetObj
 		}
 		return nil, err
 	}
-	return res, nil
+	return &BlobResult{
+		Body:          res.Body,
+		ContentLength: aws.ToInt64(res.ContentLength),
+		ContentRange:  aws.ToString(res.ContentRange),
+	}, nil
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {

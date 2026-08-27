@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-009B97.svg)](LICENSE)
 ![Go](https://img.shields.io/badge/Go-1.24-009B97)
 ![Next.js](https://img.shields.io/badge/Next.js-15-009B97)
-![Garage](https://img.shields.io/badge/Storage-Garage-009B97)
+![Storage](https://img.shields.io/badge/Storage-Local%20%2F%20Garage-009B97)
 
 [English](#english) · [한국어](#한국어)
 
@@ -28,11 +28,11 @@ curl -T file.jpg localhost:3234
 
 ### Why it exists
 
-Most "quick upload" tools either buffer the whole file in RAM, write it to a temp disk first, or fall over on multi-gigabyte transfers. `push` streams the request body straight into object storage in parallel chunks, so a 30 GB upload uses roughly the same memory as a 30 MB one.
+Most "quick upload" tools either buffer the whole file in RAM or fall over on multi-gigabyte transfers. `push` streams every request with bounded memory. Choose local storage under `/data`, or Garage for parallel S3 multipart uploads.
 
 ### How uploads actually work
 
-The request body is read once, sequentially, and sliced into 16 MiB parts. Each part is handed to a worker pool that uploads to Garage concurrently. Memory stays bounded at `part_size × (concurrency + 1)` no matter how large the file is.
+With `PUSH_STORAGE=garage`, the request body is read once, sliced into 16 MiB parts, and uploaded by a worker pool concurrently. With `PUSH_STORAGE=local`, it streams to a private staging file below `/data`, calls `fsync`, and atomically renames it into place. Concurrent requests are still handled in parallel in both modes.
 
 ```
                     ┌──────────── worker 1 ──┐
@@ -47,11 +47,11 @@ Durability details that matter:
 
 | Concern | How it is handled |
 | --- | --- |
-| Partial upload | Multipart is aborted on any error, so Garage never keeps half a file |
+| Partial upload | Garage aborts multipart uploads; local mode removes staging files and only exposes an atomic rename |
 | Client disconnect | Request context cancels every in-flight part, then aborts |
-| Crashed process | A sweeper aborts multipart uploads older than 12h |
+| Crashed process | A sweeper aborts stale Garage multipart uploads or removes stale local staging files |
 | Corruption | SHA-256 is computed inline and returned as `X-Checksum-Sha256` |
-| Metadata loss | Metadata is a sidecar object in the same bucket — no database to lose |
+| Metadata loss | Metadata is a sidecar in the same Garage bucket or `/data/meta` — no database to lose |
 
 ### Quick start
 
@@ -60,14 +60,24 @@ git clone https://github.com/aroxu/push.git
 cd push
 
 cp .env.example .env
-./scripts/gen-secrets.sh   # prints values to paste into .env
-
 docker compose up -d
 ```
 
-That is the whole deployment: Garage, the app, Caddy (TLS) and Dozzle (logs) in one `docker-compose.yml`.
+This starts local-storage mode: the app, Caddy (TLS), and Dozzle (logs). Files are persisted in the `push-data` Docker volume at `/data` inside the app container.
 
-The application image is published publicly as `ghcr.io/aroxu/push:latest`. Uploaded objects and Garage metadata are kept in persistent Docker volumes, entirely below `/data` inside the Garage container (`/data/objects` and `/data/meta`).
+To use Garage instead, set `PUSH_STORAGE=garage`, generate the Garage secrets, and enable its Compose profile:
+
+```bash
+./scripts/gen-secrets.sh   # paste the values into .env
+docker compose --profile garage up -d
+```
+
+The application image is public at `ghcr.io/aroxu/push:latest`. It can also run by itself in local mode:
+
+```bash
+docker run -d --name push -p 3234:3234 -v push-data:/data \
+  -e PUSH_PUBLIC_URL=http://localhost:3234 ghcr.io/aroxu/push:latest
+```
 
 Just trying it locally, without TLS or a domain?
 
@@ -128,6 +138,8 @@ Every upload, download, delete and expiry is emitted as a structured JSON line �
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `PUSH_STORAGE` | `local` | `local`, `garage`, or another S3-compatible backend via `s3` |
+| `PUSH_DATA_DIR` | `/data` | Local backend root; mount a persistent volume here |
 | `PUSH_PUBLIC_URL` | `http://localhost:3234` | Base URL returned to uploaders |
 | `PUSH_MAX_UPLOAD` | `32GB` | Hard size ceiling |
 | `PUSH_PART_SIZE` | `16MB` | Multipart chunk size (min 5 MiB) |
@@ -166,11 +178,11 @@ curl -T file.jpg localhost:3234
 
 ### 왜 만들었나
 
-"빠른 업로드" 도구 대부분은 파일 전체를 메모리에 담거나, 임시 디스크에 먼저 쓰거나, 수 GB짜리 전송에서 그냥 죽어버립니다. `push`는 요청 본문을 병렬 청크로 쪼개 오브젝트 스토리지에 곧바로 흘려보냅니다. 그래서 30GB 업로드가 쓰는 메모리는 30MB 업로드와 거의 같습니다.
+"빠른 업로드" 도구 대부분은 파일 전체를 메모리에 담거나 수 GB짜리 전송에서 그냥 죽어버립니다. `push`는 모든 요청을 제한된 메모리로 스트리밍합니다. `/data`에 직접 저장하는 로컬 방식과 병렬 S3 멀티파트를 쓰는 Garage 방식 중 선택할 수 있습니다.
 
 ### 업로드가 실제로 동작하는 방식
 
-요청 본문은 순차적으로 한 번만 읽으면서 16 MiB 단위로 잘립니다. 잘린 각 조각은 워커 풀에 넘겨져 Garage로 **동시에** 업로드됩니다. 파일이 아무리 커도 메모리는 `파트 크기 × (동시성 + 1)` 안에서 유지됩니다.
+`PUSH_STORAGE=garage`에서는 요청 본문을 한 번만 읽고 16 MiB 단위로 잘라 워커 풀이 Garage에 **동시에** 업로드합니다. `PUSH_STORAGE=local`에서는 `/data` 아래의 비공개 스테이징 파일로 스트리밍한 뒤 `fsync`하고 원자적으로 이름을 바꿉니다. 두 방식 모두 여러 업로드 요청은 병렬 처리됩니다.
 
 ```
                     ┌──────────── 워커 1 ──┐
@@ -185,11 +197,11 @@ curl -T file.jpg localhost:3234
 
 | 상황 | 처리 방식 |
 | --- | --- |
-| 업로드 중단 | 오류가 나면 멀티파트를 abort — 반쪽짜리 파일이 남지 않음 |
+| 업로드 중단 | Garage는 멀티파트를 abort, 로컬은 스테이징 파일을 제거한 뒤 원자적 rename만 노출 |
 | 클라이언트 연결 끊김 | 컨텍스트 취소로 진행 중인 모든 파트를 정리한 뒤 abort |
-| 프로세스 비정상 종료 | 청소 작업이 12시간 이상 방치된 멀티파트를 정리 |
+| 프로세스 비정상 종료 | 12시간 이상 방치된 Garage 멀티파트나 로컬 스테이징 파일을 정리 |
 | 무결성 | 업로드와 동시에 SHA-256 계산, `X-Checksum-Sha256` 헤더로 반환 |
-| 메타데이터 유실 | 메타데이터를 같은 버킷의 사이드카 객체로 저장 — 잃어버릴 DB가 없음 |
+| 메타데이터 유실 | 같은 Garage 버킷 또는 `/data/meta`에 사이드카로 저장 — 잃어버릴 DB가 없음 |
 
 ### 빠른 시작
 
@@ -198,14 +210,24 @@ git clone https://github.com/aroxu/push.git
 cd push
 
 cp .env.example .env
-./scripts/gen-secrets.sh   # .env에 붙여넣을 값을 출력합니다
-
 docker compose up -d
 ```
 
-배포는 이게 전부입니다. Garage, 앱, Caddy(TLS), Dozzle(로그)이 `docker-compose.yml` 하나로 뜹니다.
+기본값은 로컬 저장 방식이며 앱, Caddy(TLS), Dozzle(로그)이 뜹니다. 파일은 앱 컨테이너의 `/data`에 마운트된 `push-data` Docker 볼륨에 보존됩니다.
 
-앱 이미지는 `ghcr.io/aroxu/push:latest`에 공개됩니다. 업로드 객체와 Garage 메타데이터는 영구 Docker 볼륨에 보존되며, Garage 컨테이너 내부에서는 전부 `/data` 아래(`/data/objects`, `/data/meta`)에 저장됩니다.
+Garage를 쓰려면 `PUSH_STORAGE=garage`로 바꾸고 Garage 시크릿을 만든 뒤 Compose 프로필을 켭니다.
+
+```bash
+./scripts/gen-secrets.sh   # 출력값을 .env에 붙여넣기
+docker compose --profile garage up -d
+```
+
+앱 이미지는 `ghcr.io/aroxu/push:latest`에 공개됩니다. 로컬 방식이라면 이미지 하나만으로도 실행할 수 있습니다.
+
+```bash
+docker run -d --name push -p 3234:3234 -v push-data:/data \
+  -e PUSH_PUBLIC_URL=http://localhost:3234 ghcr.io/aroxu/push:latest
+```
 
 도메인이나 TLS 없이 로컬에서만 먼저 써보고 싶다면:
 
@@ -266,6 +288,8 @@ Dozzle은 `/logs` 경로에서 볼 수 있고 basic auth로 보호됩니다 (`.e
 
 | 환경 변수 | 기본값 | 설명 |
 | --- | --- | --- |
+| `PUSH_STORAGE` | `local` | `local`, `garage`, 또는 S3 호환 스토리지용 `s3` |
+| `PUSH_DATA_DIR` | `/data` | 로컬 저장 루트; 여기에 영구 볼륨을 마운트 |
 | `PUSH_PUBLIC_URL` | `http://localhost:3234` | 업로더에게 돌려줄 기본 URL |
 | `PUSH_MAX_UPLOAD` | `32GB` | 업로드 최대 크기 |
 | `PUSH_PART_SIZE` | `16MB` | 멀티파트 청크 크기 (최소 5 MiB) |

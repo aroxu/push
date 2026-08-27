@@ -12,19 +12,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 type Server struct {
 	cfg   *Config
-	store *Store
+	store Storage
 	log   *AuditLog
 	rl    *RateLimiter
 	slots chan struct{}
 }
 
-func NewServer(cfg *Config, store *Store, log *AuditLog) *Server {
+func NewServer(cfg *Config, store Storage, log *AuditLog) *Server {
 	return &Server{
 		cfg:   cfg,
 		store: store,
@@ -257,16 +255,21 @@ func (s *Server) HandleGet(w http.ResponseWriter, r *http.Request, id string, he
 			s.fail(w, r, http.StatusNotFound, "not found or expired")
 			return
 		}
+		if errors.Is(err, ErrInvalidRange) {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", meta.Size))
+			s.fail(w, r, http.StatusRequestedRangeNotSatisfiable, "invalid range")
+			return
+		}
 		s.fail(w, r, http.StatusInternalServerError, "storage error")
 		return
 	}
 	defer res.Body.Close()
 
-	length := aws.ToInt64(res.ContentLength)
-	s.writeFileHeaders(w, r, meta, length, aws.ToString(res.ContentRange))
+	length := res.ContentLength
+	s.writeFileHeaders(w, r, meta, length, res.ContentRange)
 
 	status := http.StatusOK
-	if res.ContentRange != nil {
+	if res.ContentRange != "" {
 		status = http.StatusPartialContent
 	}
 	w.WriteHeader(status)

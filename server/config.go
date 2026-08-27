@@ -14,6 +14,8 @@ type Config struct {
 	Addr           string
 	PublicBaseURL  string
 	TrustedProxies []string
+	StorageBackend string
+	DataDir        string
 
 	S3Endpoint  string
 	S3Region    string
@@ -87,8 +89,10 @@ func envDur(key string, def time.Duration) time.Duration {
 
 func LoadConfig() (*Config, error) {
 	c := &Config{
-		Addr:          env("PUSH_ADDR", ":3234"),
-		PublicBaseURL: strings.TrimRight(env("PUSH_PUBLIC_URL", "http://localhost:3234"), "/"),
+		Addr:           env("PUSH_ADDR", ":3234"),
+		PublicBaseURL:  strings.TrimRight(env("PUSH_PUBLIC_URL", "http://localhost:3234"), "/"),
+		StorageBackend: strings.ToLower(env("PUSH_STORAGE", "local")),
+		DataDir:        env("PUSH_DATA_DIR", "/data"),
 
 		S3Endpoint:  env("PUSH_S3_ENDPOINT", "http://garage:3900"),
 		S3Region:    env("PUSH_S3_REGION", "garage"),
@@ -117,10 +121,13 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
-	if c.S3AccessKey == "" || c.S3SecretKey == "" {
+	if c.StorageBackend != "local" && c.StorageBackend != "garage" && c.StorageBackend != "s3" {
+		return nil, fmt.Errorf("PUSH_STORAGE must be local, garage, or s3")
+	}
+	if c.StorageBackend != "local" && (c.S3AccessKey == "" || c.S3SecretKey == "") {
 		return nil, fmt.Errorf("PUSH_S3_ACCESS_KEY and PUSH_S3_SECRET_KEY are required")
 	}
-	if c.PartSize < 5<<20 {
+	if c.StorageBackend != "local" && c.PartSize < 5<<20 {
 		return nil, fmt.Errorf("PUSH_PART_SIZE must be at least 5MiB (S3 multipart minimum)")
 	}
 	if c.PartConcurrency < 1 {

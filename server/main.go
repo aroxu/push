@@ -66,11 +66,17 @@ func main() {
 	_ = httpSrv.Shutdown(shutCtx)
 }
 
-// waitForStore retries until Garage finishes its own startup.
-func waitForStore(ctx context.Context, cfg *Config, audit *AuditLog) (*Store, error) {
+// waitForStore initializes local storage or retries while a remote S3 backend starts.
+func waitForStore(ctx context.Context, cfg *Config, audit *AuditLog) (Storage, error) {
 	var lastErr error
 	for i := 0; i < 60; i++ {
-		store, err := NewStore(ctx, cfg)
+		var store Storage
+		var err error
+		if cfg.StorageBackend == "local" {
+			store, err = NewLocalStore(cfg.DataDir)
+		} else {
+			store, err = NewStore(ctx, cfg)
+		}
 		if err == nil {
 			return store, nil
 		}
@@ -190,7 +196,7 @@ func isAsset(sub fs.FS, path string) bool {
 }
 
 // reaper enforces the 24h retention window and prunes rotated audit logs.
-func reaper(ctx context.Context, cfg *Config, store *Store, audit *AuditLog) {
+func reaper(ctx context.Context, cfg *Config, store Storage, audit *AuditLog) {
 	run := func() {
 		now := time.Now()
 		removed := 0
